@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+# rubocop:disable Style/GlobalVars
+
 require 'ruby2d'
 require 'pry'
 require 'pry-nav'
@@ -10,15 +12,10 @@ $height = 720.0
 $d = 100.0
 $translation_pace = 0.1
 $rotation_pace = 0.07
-$camera_translation_precision = 1
-$camera_rotation_precision = 2
 $pressed = false
-$combined_rotation_matrix = nil
-
-# ox = Matrix.column_vector([1.0, 0.0, 0.0])
-#   oy = Matrix.column_vector([0.0, 1.0, 0.0])
-#   oz = Matrix.column_vector([0.0, 0.0, 1.0])
-#   quant_angle = 0.07 * 5
+$ox = Matrix.column_vector([1.0, 0.0, 0.0])
+$oy = Matrix.column_vector([0.0, 1.0, 0.0])
+$oz = Matrix.column_vector([0.0, 0.0, 1.0])
 
 class Connection
   attr_accessor :a, :b
@@ -29,19 +26,15 @@ class Connection
   end
 end
 
-$camera = {
-  x: 0.0,
-  y: 0.0,
-  z: 0.0,
-  # OX
-  pitch: 0.0,
-  # OY
-  yaw: 0.0,
-  # OZ
-  roll: 0.0,
-  vfov: 90 * Math::PI / 180,
-  hfov: 113 * Math::PI / 180
-}
+$vfov = 90.0 * Math::PI / 180.0
+$hfov = $vfov * 4.0 / 3.0
+
+$transformation_matrix = Matrix[
+  [1, 0, 0, 0],
+  [0, 1, 0, 0],
+  [0, 0, 1, 0],
+  [0, 0, 0, 1]
+    ]
 
 set width: $width, height: $height
 
@@ -69,6 +62,7 @@ points = [
   Matrix.column_vector([1.25, 0.75, 1.5, 1.0]),
   Matrix.column_vector([0.75, 1.25, 1.5, 1.0])
 ]
+
 connections = [
   # first second layer
   Connection.new(0, 1),
@@ -113,12 +107,10 @@ connections = [
 ]
 
 def project_point(point)
-  point -= Matrix.column_vector([$camera[:x], $camera[:y], $camera[:z], 0.0])
   result = Matrix.column_vector([0.0, 0.0])
   result[0, 0] = (point[0, 0] * $d) / point[2, 0]
   result[1, 0] = (point[1, 0] * $d) / point[2, 0]
-
-  result + Matrix.column_vector([$camera[:x], $camera[:y]])
+  result
 end
 
 def translate_point(point, translation_vector)
@@ -148,56 +140,38 @@ def rotate_point(point, rotation_axis, angle)
   rot_mtr * point
 end
 
-def generate_rotation_matrix_for_camera
-  rot_mtr_yaw = rotation_matrix(Matrix.column_vector([0.0, 1.0, 0.0]), -$camera[:yaw])
-  rot_mtr_pitch = rotation_matrix(Matrix.column_vector([1.0, 0.0, 0.0]), -$camera[:pitch])
-  rot_mtr_roll = rotation_matrix(Matrix.column_vector([0.0, 0.0, 1.0]), -$camera[:roll])
-  $combined_rotation_matrix = rot_mtr_roll * rot_mtr_pitch * rot_mtr_yaw
-end
-
 def rotate_point_for_camera(point)
-  point -= Matrix.column_vector([$camera[:x], $camera[:y], $camera[:z], 0.0])
-  $combined_rotation_matrix * point + Matrix.column_vector([$camera[:x], $camera[:y], $camera[:z], 0.0])
+  $transformation_matrix * point
 end
 
 def reset_camera
-  $camera[:x] = 0.0
-  $camera[:y] = 0.0
-  $camera[:z] = 0.0
-
-  $camera[:yaw] = 0.0
-  $camera[:pitch] = 0.0
-  $camera[:roll] = 0.0
+  $transformation_matrix = Matrix[
+    [1, 0, 0, 0],
+    [0, 1, 0, 0],
+    [0, 0, 1, 0],
+    [0, 0, 0, 1]
+      ]
+  $vfov = 90.0 * Math::PI / 180.0
+  $hfov = $vfov * 4.0 / 3.0
 end
 
-gui_yaw = Text.new(
-  "Camera yaw: #{$camera[:yaw]}",
-  x: 150, y: 470,
-  z: 10
-)
-gui_pitch = Text.new(
-  "Camera pitch: #{$camera[:pitch]}",
-  x: 150, y: 490,
-  z: 10
-)
-gui_roll = Text.new(
-  "Camera roll: #{$camera[:roll]}",
-  x: 150, y: 510,
-  z: 10
-)
-gui_x = Text.new(
-  "Camera x: #{$camera[:x]}",
+def translate_matrix(x, y, z)
+  Matrix[
+    [1, 0, 0, x],
+    [0, 1, 0, y],
+    [0, 0, 1, z],
+    [0, 0, 0, 1]
+  ]
+end
+
+gui_v_fov = Text.new(
+  "Vertical FOV: #{($vfov * 180.0 / Math::PI).round(2)}",
   x: 150, y: 530,
   z: 10
 )
-gui_y = Text.new(
-  "Camera y: #{$camera[:y]}",
+gui_h_fov = Text.new(
+  "Horizontal FOV: #{($hfov * 180.0 / Math::PI).round(2)}",
   x: 150, y: 550,
-  z: 10
-)
-gui_z = Text.new(
-  "Camera z: #{$camera[:z]}",
-  x: 150, y: 570,
   z: 10
 )
 gui_debug = Text.new(
@@ -213,61 +187,58 @@ points.map! do |point|
 end
 
 render do
-  visible_connections = connections
   projected_points = []
 
   on :key_down do |event|
-    gui_yaw.text = "Camera yaw: #{$camera[:yaw]}"
-    gui_pitch.text = "Camera pitch: #{$camera[:pitch]}"
-    gui_roll.text = "Camera roll: #{$camera[:roll]}"
-    gui_x.text = "Camera x: #{$camera[:x]}"
-    gui_y.text = "Camera y: #{$camera[:y]}"
-    gui_z.text = "Camera z: #{$camera[:z]}"
+    gui_v_fov.text = "Vertical FOV: #{($vfov * 180.0 / Math::PI).round(2)}"
+    gui_h_fov.text = "Horizontal FOV: #{($hfov * 180.0 / Math::PI).round(2)}"
 
     unless $pressed
       gui_debug.text = "debug: #{event.key}"
 
       if event.key == 'w'
-        $camera[:z] += $translation_pace * Math.cos($camera[:yaw])
-        $camera[:x] += $translation_pace * Math.sin($camera[:yaw])
+        $transformation_matrix = translate_matrix(0, 0, -$translation_pace) * $transformation_matrix
       elsif event.key == 's'
-        $camera[:z] -= $translation_pace * Math.cos($camera[:yaw])
-        $camera[:x] -= $translation_pace * Math.sin($camera[:yaw])
+        $transformation_matrix = translate_matrix(0, 0, $translation_pace) * $transformation_matrix
       elsif event.key == 'a'
-        $camera[:z] += $translation_pace * Math.sin($camera[:yaw])
-        $camera[:x] -= $translation_pace * Math.cos($camera[:yaw])
+        $transformation_matrix = translate_matrix($translation_pace, 0, 0) * $transformation_matrix
       elsif event.key == 'd'
-        $camera[:z] -= $translation_pace * Math.sin($camera[:yaw])
-        $camera[:x] += $translation_pace * Math.cos($camera[:yaw])
+        $transformation_matrix = translate_matrix(-$translation_pace, 0, 0) * $transformation_matrix
       elsif event.key == 'z'
-        $camera[:y] -= $translation_pace
+        $transformation_matrix = translate_matrix(0, $translation_pace, 0) * $transformation_matrix
       elsif event.key == 'x'
-        $camera[:y] += $translation_pace
+        $transformation_matrix = translate_matrix(0, -$translation_pace, 0) * $transformation_matrix
       elsif event.key == 'left'
-        $camera[:yaw] -= $rotation_pace
+        $transformation_matrix = rotation_matrix($oy, $rotation_pace) * $transformation_matrix
       elsif event.key == 'right'
-        $camera[:yaw] += $rotation_pace
+        $transformation_matrix = rotation_matrix($oy, -$rotation_pace) * $transformation_matrix
       elsif event.key == 'down'
-        $camera[:pitch] += $rotation_pace
+        $transformation_matrix = rotation_matrix($ox, -$rotation_pace) * $transformation_matrix
       elsif event.key == 'up'
-        $camera[:pitch] -= $rotation_pace
+        $transformation_matrix = rotation_matrix($ox, $rotation_pace) * $transformation_matrix
       elsif event.key == '['
-        $camera[:roll] += $rotation_pace
+        $transformation_matrix = rotation_matrix($oz, -$rotation_pace) * $transformation_matrix
       elsif event.key == ']'
-        $camera[:roll] -= $rotation_pace
+        $transformation_matrix = rotation_matrix($oz, $rotation_pace) * $transformation_matrix
+      elsif event.key == '='
+        $vfov += $rotation_pace
+        $hfov = $vfov * 4.0 / 3.0
+      elsif event.key == '-'
+        $vfov -= $rotation_pace
+        $hfov = $vfov * 4.0 / 3.0
       elsif event.key == 'r'
         reset_camera
       end
     end
+
     $pressed = true
   end
   on :key_up do |_event|
     $pressed = false
   end
-  generate_rotation_matrix_for_camera
   points.map! do |point|
     rotated_for_camera = rotate_point_for_camera(point)
-    projected_points << if rotated_for_camera[2, 0] < $camera[:z]
+    projected_points << if !rotated_for_camera[2, 0].positive?
                           nil
                         else
                           project_point(rotated_for_camera)
@@ -276,27 +247,11 @@ render do
     point
   end
 
-  # visible_connections.each_with_index do |c, _index|
-  #   next if projected_points[c.a].nil? || projected_points[c.b].nil?
-
-  #   Line.draw(x1: projected_points[c.a][0, 0] + 0.5 * $width,
-  #             y1: $height - projected_points[c.a][1, 0] - 0.5 * $height,
-  #             x2: projected_points[c.b][0, 0] + 0.5 * $width,
-  #             y2: $height - projected_points[c.b][1, 0] - 0.5 * $height,
-  #             width: 1,
-  #             color: [
-  #               [1, 0, 0, 1.0],
-  #               [1, 0, 0, 1.0],
-  #               [1, 0, 0, 1.0],
-  #               [1, 0, 0, 1.0]
-  #             ])
-  # end
-
-  visible_connections.each_with_index do |c, _index|
+  connections.each do |c|
     next if projected_points[c.a].nil? || projected_points[c.b].nil?
 
-    vertical_limit = $d * Math.tan($camera[:vfov] / 2)
-    horizontal_limit = $d * Math.tan($camera[:hfov] / 2)
+    vertical_limit = $d * Math.tan($vfov / 2)
+    horizontal_limit = $d * Math.tan($hfov / 2)
     Line.draw(x1: (projected_points[c.a][0, 0] / horizontal_limit / 2.0 + 0.5) * $width,
               y1: $height - (projected_points[c.a][1, 0] / vertical_limit / 2.0 + 0.5) * $height,
               x2: (projected_points[c.b][0, 0] / horizontal_limit / 2.0 + 0.5) * $width,
