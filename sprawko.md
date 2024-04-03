@@ -34,10 +34,6 @@ Funkcja `translate_matrix(x, y, z)`:
 Tworzy macierz translacji dla zadanych wartości wzdłuż osi x, y, z.
 Macierz ta służy do przesuwania punktów w przestrzeni.
 
-Funkcja `def rotation_matrix(axis_vector, angle)`:
-Tworzy macierz rotacji dla zadanego wektora reprezentującego wybraną oś oraz kąta obrotu.
-Macierz ta służy do obracania punktów w przestrzeni.
-
 #### Funkcje do przygotowania obiektu w scenie
 
 Funkcja `translate_point(point, translation_vector)`:
